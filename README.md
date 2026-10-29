@@ -97,6 +97,44 @@ function StatusDot() {
 Wherever a hook takes a channel, pass a name (it subscribes) or a channel
 object you already have, such as Echo's `Echo.private('x').subscription`.
 
+## Auth endpoint
+
+Private and presence channels need a route on your backend that checks who
+is signed in and signs the subscription. `endpoint` in `channelAuthorization`
+points to it. With Next.js:
+
+```js
+// app/api/hibira/auth/route.js
+import Pusher from 'pusher';
+
+const pusher = new Pusher({
+  appId: process.env.HIBIRA_APP_ID,
+  key: process.env.HIBIRA_KEY,
+  secret: process.env.HIBIRA_SECRET,
+  host: 'ws.hibira.io', // the host shown on your app page
+  useTLS: true,
+});
+
+export async function POST(req) {
+  const user = await getUser(req); // your session check
+  if (!user) return new Response('Unauthorized', { status: 401 });
+  const form = await req.formData(); // pusher-js sends a form post
+  const socketId = form.get('socket_id');
+  const channel = form.get('channel_name');
+  if (!mayJoin(user, channel)) return new Response('Forbidden', { status: 403 });
+  const presence = channel.startsWith('presence-')
+    ? { user_id: String(user.id), user_info: { name: user.name } }
+    : undefined;
+  return Response.json(pusher.authorizeChannel(socketId, channel, presence));
+}
+```
+
+The app ID and key are on the app's page in the Hibira portal; the secret
+is shown only once, when you create the app, so store it in your backend's
+environment then. On the Free plan, add your site's origin (for example
+`http://localhost:3000`) to the app's allowed origins, or browsers can't
+connect.
+
 ## Streaming LLM output
 
 Send the model's stream from your backend with `streamToChannel()`. It
