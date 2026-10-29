@@ -5,6 +5,8 @@ const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: 'http://loc
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// Node 20 has no global navigator; react-dom reads it.
+globalThis.navigator ??= dom.window.navigator;
 
 // React 17's scheduler keeps a MessageChannel open, which would keep the
 // test process alive after the last test.

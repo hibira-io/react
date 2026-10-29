@@ -26,7 +26,8 @@ const act = React.act ?? require('react-dom/test-utils').act;
 let createRoot;
 try {
   createRoot = require('react-dom/client').createRoot;
-} catch {
+} catch (err) {
+  if (err.code !== 'MODULE_NOT_FOUND') throw err;
   createRoot = (el) => ({ render: (ui) => ReactDOM.render(ui, el), unmount: () => ReactDOM.unmountComponentAtNode(el) });
 }
 
