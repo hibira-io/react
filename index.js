@@ -11,10 +11,10 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Pusher from 'pusher-js';
 import { acquireChannel, hibiraOptions, isClientEvent, presenceMembers, releaseChannel } from './client.js';
-import { STREAM_EVENT, createStreamStore, latestStream } from './stream.js';
+import { STREAM_EVENT, createStreamStore, followStream, latestStream } from './stream.js';
 
 export { HIBIRA_DEFAULTS, hibiraOptions } from './client.js';
-export { STREAM_EVENT, createStreamStore } from './stream.js';
+export { STREAM_EVENT, createStreamStore, followStream } from './stream.js';
 
 const HibiraContext = createContext(null);
 
@@ -185,16 +185,35 @@ export function useTrigger(target) {
  * @param {string} [options.event="ai-stream"] event name
  * @param {string} [options.id] follow only this stream id
  * @param {number} [options.maxStreams=50] streams kept, oldest dropped first
- * @returns {{stream, streams, text, done, error, reset, channel}} `stream` is
+ * @param {boolean|object} [options.rewind] catch up from channel history on
+ *   each subscription: true, or { seconds = 300, limit, timeout = 5000 }
+ * @returns {{stream, streams, text, done, error, history, reset, channel}} `stream` is
  *   the one with `id`, or else the one that started last
  */
-export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50 } = {}) {
+export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50, rewind } = {}) {
+  const pusher = usePusher();
+  const channel = useTarget(target);
   const [streams, setStreams] = useState({});
+  const [history, setHistory] = useState(null);
   const store = useMemo(() => createStreamStore((next) => setStreams(next), { maxStreams }), [maxStreams]);
-  const channel = useEvent(target, event, (payload) => {
-    if (id != null && String(payload?.id) !== String(id)) return;
-    store.apply(payload);
-  });
+  const idRef = useRef(id);
+  idRef.current = id;
+  const rewindKey = rewind ? JSON.stringify(rewind) : '';
+
+  useEffect(() => {
+    if (!channel || !event) return undefined;
+    return followStream(channel, {
+      event,
+      client: channel.pusher ?? pusher,
+      rewind: rewindKey ? JSON.parse(rewindKey) : false,
+      onHistory: setHistory,
+      apply: (payload) => {
+        const want = idRef.current;
+        if (want != null && String(payload?.id) !== String(want)) return;
+        store.apply(payload);
+      },
+    });
+  }, [channel, event, pusher, store, rewindKey]);
 
   const stream = id != null ? streams[String(id)] ?? null : latestStream(streams);
   return {
@@ -204,6 +223,7 @@ export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50 } 
     text: stream?.text ?? '',
     done: stream?.done ?? false,
     error: stream?.error ?? null,
+    history,
     reset: store.reset,
   };
 }

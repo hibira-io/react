@@ -203,6 +203,25 @@ test('useStream puts a stream back together', async () => {
   assert.equal(out.value.stream, null);
 });
 
+test('useStream with rewind catches up after subscribing', async () => {
+  const pusher = fakePusher();
+  const out = {};
+  const P = probe(() => useStream('private-ai', { rewind: { seconds: 120 } }), out);
+  await render(h(HibiraProvider, { client: pusher }, h(P)));
+  assert.equal(out.value.history, null);
+  const ch = await act(async () => pusher.succeed('private-ai'));
+  assert.deepEqual(pusher.log.at(-1), ['send_event', 'pusher:rewind', { channel: 'private-ai', seconds: 120 }, 'private-ai']);
+  await act(async () => {
+    ch.emit('ai-stream', { id: 's1', seq: 1, delta: 'lo' });
+    ch.emit('ai-stream', { id: 's1', seq: 0, delta: 'Hel' });
+  });
+  assert.equal(out.value.text, '', 'held until the history answers');
+  await act(async () => ch.emit('pusher:rewind_succeeded', { count: 1, window: 3600, complete: true }));
+  assert.equal(out.value.text, 'Hello');
+  assert.equal(out.value.stream.incomplete, false);
+  assert.deepEqual(out.value.history, { count: 1, window: 3600, complete: true });
+});
+
 test('useStream with an id and a custom event', async () => {
   const pusher = fakePusher();
   const out = {};

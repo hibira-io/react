@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import * as React from 'react';
 import { createRequire } from 'node:module';
 import PusherServer from 'pusher';
-import { HibiraProvider, useConnectionState, useEvent, usePresence, useStream, useTrigger } from '../../index.js';
+import { HibiraProvider, useConnectionState, useEvent, usePresence, usePusher, useStream, useTrigger } from '../../index.js';
 import { streamToChannel } from '../../server.js';
 
 const require = createRequire(import.meta.url);
@@ -114,4 +114,93 @@ test('hooks on a real server: presence, client events, streamed text', { skip },
   } finally {
     for (const root of roots) await act(async () => root.unmount());
   }
+});
+
+// Needs channel history on for the app (history: true, history_seconds > 0).
+test('useStream rewind: a reload mid-answer gets the whole answer', { skip: skip || (!env.HIBIRA_E2E_HISTORY && 'set HIBIRA_E2E_HISTORY=1 (app with channel history)') }, async () => {
+  const ai = `private-ai-rewind-${Date.now()}`;
+  const tokens = Array.from({ length: 120 }, (_, i) => `t${i} `);
+  let release;
+  const gate = new Promise((r) => (release = r));
+  async function* llm() {
+    for (let i = 0; i < tokens.length; i++) {
+      if (i === 60) await gate; // half the answer is out before the page loads
+      yield tokens[i];
+      await new Promise((r) => setTimeout(r, 2));
+    }
+  }
+  const sending = streamToChannel(server, ai, llm(), { interval: 20 });
+  await new Promise((r) => setTimeout(r, 400));
+
+  const views = {};
+  function View() {
+    views.plain = useStream(ai);
+    return null;
+  }
+  function Rewound() {
+    views.rewound = useStream(ai, { rewind: { seconds: 60 } });
+    return null;
+  }
+  const el = document.createElement('div');
+  const root = createRoot(el);
+  await act(async () =>
+    root.render(h(HibiraProvider, { appKey: env.HIBIRA_E2E_KEY, options: options('u', 'U') }, h(View), h(Rewound))),
+  );
+  await waitFor(() => views.rewound.history, 'rewind answer');
+  assert.equal(views.rewound.history.error, undefined, views.rewound.history.error);
+  assert.ok(views.rewound.history.count > 0);
+  // Before the final event (whose text could patch things up) the first half is already there.
+  const firstHalf = tokens.slice(0, 60).join('');
+  await waitFor(() => views.rewound.text.length >= firstHalf.length, 'first half');
+  assert.equal(views.rewound.text.slice(0, firstHalf.length), firstHalf);
+  assert.equal(views.rewound.done, false);
+  release();
+  const res = await sending;
+  await waitFor(() => views.rewound.done && views.plain.done, 'stream done');
+  assert.equal(views.rewound.text, res.text);
+  assert.equal(views.rewound.stream.incomplete, false);
+  await act(async () => root.unmount());
+});
+
+test('useStream rewind: chunks sent while disconnected are caught up', { skip: skip || (!env.HIBIRA_E2E_HISTORY && 'set HIBIRA_E2E_HISTORY=1 (app with channel history)') }, async () => {
+  const ai = `private-ai-reconnect-${Date.now()}`;
+  const views = {};
+  function View() {
+    views.pusher = usePusher();
+    views.state = useConnectionState();
+    views.s = useStream(ai, { rewind: true });
+    return null;
+  }
+  const el = document.createElement('div');
+  const root = createRoot(el);
+  await act(async () => root.render(h(HibiraProvider, { appKey: env.HIBIRA_E2E_KEY, options: options('u', 'U') }, h(View))));
+  await waitFor(() => views.s.history, 'first rewind');
+
+  const parts = Array.from({ length: 90 }, (_, i) => `p${i} `);
+  const gates = [];
+  const gate = (n) => new Promise((r) => (gates[n] = r));
+  const waits = [gate(0), gate(1)];
+  async function* llm() {
+    for (let i = 0; i < parts.length; i++) {
+      if (i === 30) await waits[0];
+      if (i === 60) await waits[1];
+      yield parts[i];
+    }
+  }
+  const sending = streamToChannel(server, ai, llm(), { interval: 10 });
+  await waitFor(() => views.s.text.length >= parts.slice(0, 30).join('').length, 'first third');
+  await act(async () => views.pusher.disconnect());
+  await waitFor(() => views.state === 'disconnected', 'disconnected');
+  gates[0]();
+  await new Promise((r) => setTimeout(r, 500)); // the middle third goes out while offline
+  await act(async () => views.pusher.connect());
+  const middle = parts.slice(0, 60).join('');
+  await waitFor(() => views.s.text.length >= middle.length, 'middle third after reconnect');
+  assert.equal(views.s.text.slice(0, middle.length), middle);
+  assert.equal(views.s.done, false);
+  gates[1]();
+  const res = await sending;
+  await waitFor(() => views.s.done, 'done');
+  assert.equal(views.s.text, res.text);
+  await act(async () => root.unmount());
 });
