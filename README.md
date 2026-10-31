@@ -1,5 +1,7 @@
 # @hibira-io/react
 
+![@hibira-io/react](.github/cover.jpg)
+
 [![npm](https://img.shields.io/npm/v/@hibira-io/react)](https://www.npmjs.com/package/@hibira-io/react)
 [![ci](https://github.com/hibira-io/react/actions/workflows/ci.yml/badge.svg)](https://github.com/hibira-io/react/actions/workflows/ci.yml)
 
