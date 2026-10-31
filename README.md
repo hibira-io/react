@@ -93,6 +93,7 @@ function StatusDot() {
 | `useTrigger(channel)` | `trigger('client-…', data)`, `false` until subscribed; turn on client events for the app in the portal |
 | `useConnectionState()` | `'initialized'`, `'connecting'`, `'connected'`, `'unavailable'`, `'failed'` or `'disconnected'` |
 | `useStream(channel, { id, event, rewind })` | `{ text, done, error, stream, streams, history, reset }`, see below |
+| `useAgentStream(channel, { invocationId, rewind })` | `{ text, reasoning, status, done, error, toolCalls, approvals, run, runs, history, reset }` for Laravel AI SDK agents, see below |
 
 Wherever a hook takes a channel, pass a name (it subscribes) or a channel
 object you already have, such as Echo's `Echo.private('x').subscription`.
@@ -248,6 +249,44 @@ same for any pusher-js channel.
 
 Use a private or presence channel for anything personal, so only the people
 your auth endpoint allows can subscribe.
+
+## Laravel AI SDK agents: `useAgentStream`
+
+For agents built with the [Laravel AI SDK](https://github.com/laravel/ai)
+and broadcast with [`hibira-io/laravel`](https://github.com/hibira-io/laravel):
+
+```php
+// Laravel: queue the agent, stream its events to the user's private channel
+use Hibira\Laravel\Ai\AgentChannel;
+
+(new SalesCoach)->broadcastOnQueue($request->input('prompt'), AgentChannel::user($request->user()));
+```
+
+```jsx
+const { text, reasoning, status, toolCalls, approvals, error } = useAgentStream(
+  `private-hibira-ai.user.${user.id}`,
+  { rewind: true },
+);
+```
+
+It listens to every Laravel AI stream event (`text_delta`,
+`reasoning_delta`, `tool_call`, `tool_result`, `tool_approval_request`,
+`stream_end`, errors) and puts each run (one `invocation_id`) back together.
+`status` is `idle`, `streaming`, `awaiting_approval`, `done` or `error`;
+`run.parts` lists text, reasoning and tool calls in the order they started,
+for rendering a chat transcript. Events bigger than the plan's per-event
+limit (4 KB on Free) arrive split into `hibira:chunk` events, which are
+joined; replays from `rewind` are dropped by event id.
+
+| Option | Default | |
+| --- | --- | --- |
+| `invocationId` | | follow only this run; otherwise the one that started last |
+| `rewind` | off | as for `useStream()` |
+| `maxRuns` | `20` | runs kept, oldest dropped first |
+| `events` | | extra event names, such as a provider's own error types |
+
+`createAgentStore(onChange)` is the same without React, for any pusher-js
+channel.
 
 ## Licence
 
