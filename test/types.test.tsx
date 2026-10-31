@@ -1,6 +1,6 @@
 // Compiled by `npm run typecheck`, never run.
 import Pusher from 'pusher-js';
-import { HibiraProvider, useChannel, useEvent, usePresence, useStream, useTrigger, useConnectionState, hibiraOptions } from '@hibira-io/react';
+import { HibiraProvider, useAgentStream, useChannel, useEvent, usePresence, useStream, useTrigger, useConnectionState, hibiraOptions } from '@hibira-io/react';
 import { streamToChannel } from '@hibira-io/react/server';
 
 export function App() {
@@ -18,6 +18,10 @@ function Chat() {
   const trigger = useTrigger('private-chat');
   trigger('client-typing', {});
   const { text, done, stream } = useStream<{ model: string }>('private-ai');
+  const agent = useAgentStream('private-hibira-ai.user.1', { rewind: { seconds: 60 }, invocationId: 'inv' });
+  const agentText: string = agent.text;
+  const agentStatus: 'idle' | 'streaming' | 'awaiting_approval' | 'done' | 'error' = agent.status;
+  const firstTool: string | null | undefined = agent.toolCalls[0]?.name;
   const state: 'connected' | string = useConnectionState();
   return (
     <p>
