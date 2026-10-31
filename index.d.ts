@@ -2,12 +2,15 @@ import type { ReactNode, ReactElement } from 'react';
 import type Pusher from 'pusher-js';
 import type { Options } from 'pusher-js';
 import type { Member } from './client.js';
-import type { Stream } from './stream.js';
+import type { HistoryResult, RewindOptions, Stream } from './stream.js';
+import type { AgentRun, AgentRunStatus, AgentToolCall } from './agent.js';
 
 export type { Member } from './client.js';
-export type { Stream, StreamPayload, StreamStore } from './stream.js';
+export type { HistoryResult, RewindOptions, Stream, StreamPayload, StreamStore } from './stream.js';
 export { HIBIRA_DEFAULTS, hibiraOptions } from './client.js';
-export { STREAM_EVENT, createStreamStore } from './stream.js';
+export { STREAM_EVENT, createStreamStore, followStream } from './stream.js';
+export type { AgentPart, AgentRun, AgentRunStatus, AgentStore, AgentToolCall } from './agent.js';
+export { AGENT_EVENTS, CHUNK_EVENT, createAgentStore } from './agent.js';
 
 /** A pusher-js channel (PresenceChannel and PrivateChannel included). */
 export type Channel = ReturnType<Pusher['subscribe']>;
@@ -64,6 +67,12 @@ export interface UseStreamOptions {
   id?: string;
   /** Streams kept, default 50. */
   maxStreams?: number;
+  /**
+   * Catch up from channel history (pusher:rewind) on each subscription, so a
+   * reload or a dropped connection does not lose chunks. Needs channel
+   * history on for the app (Hobby plans and up).
+   */
+  rewind?: boolean | RewindOptions;
 }
 
 export interface StreamState<Meta = any> {
@@ -74,8 +83,41 @@ export interface StreamState<Meta = any> {
   text: string;
   done: boolean;
   error: string | null;
+  /** The last rewind's result, or null before one (or without `rewind`). */
+  history: HistoryResult | null;
   /** Forget every stream. */
   reset(): void;
 }
 
 export function useStream<Meta = any>(target: ChannelTarget, options?: UseStreamOptions): StreamState<Meta>;
+
+export interface UseAgentStreamOptions {
+  /** Follow only this run (the invocation id of broadcastOnQueue()). */
+  invocationId?: string;
+  /** Runs kept, default 20. */
+  maxRuns?: number;
+  /** Catch up from channel history (pusher:rewind) on each subscription. Hobby plans and up. */
+  rewind?: boolean | RewindOptions;
+  /** Extra event names to listen to, such as a provider's own error types. */
+  events?: string[];
+}
+
+export interface AgentStreamState {
+  channel: Channel | null;
+  /** The run with invocationId, or else the one that started last. */
+  run: AgentRun | null;
+  runs: Record<string, AgentRun>;
+  text: string;
+  reasoning: string;
+  /** "idle" before the first event. */
+  status: AgentRunStatus | 'idle';
+  done: boolean;
+  error: string | null;
+  toolCalls: AgentToolCall[];
+  approvals: any[];
+  history: HistoryResult | null;
+  reset(): void;
+}
+
+/** A Laravel AI SDK agent stream (laravel/ai broadcastOnQueue()), put back together. */
+export function useAgentStream(target: ChannelTarget, options?: UseAgentStreamOptions): AgentStreamState;

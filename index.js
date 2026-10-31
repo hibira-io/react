@@ -11,10 +11,12 @@
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Pusher from 'pusher-js';
 import { acquireChannel, hibiraOptions, isClientEvent, presenceMembers, releaseChannel } from './client.js';
-import { STREAM_EVENT, createStreamStore, latestStream } from './stream.js';
+import { STREAM_EVENT, createStreamStore, followStream, latestStream } from './stream.js';
+import { AGENT_EVENTS, createAgentStore, latestRun } from './agent.js';
 
 export { HIBIRA_DEFAULTS, hibiraOptions } from './client.js';
-export { STREAM_EVENT, createStreamStore } from './stream.js';
+export { STREAM_EVENT, createStreamStore, followStream } from './stream.js';
+export { AGENT_EVENTS, CHUNK_EVENT, createAgentStore } from './agent.js';
 
 const HibiraContext = createContext(null);
 
@@ -185,16 +187,35 @@ export function useTrigger(target) {
  * @param {string} [options.event="ai-stream"] event name
  * @param {string} [options.id] follow only this stream id
  * @param {number} [options.maxStreams=50] streams kept, oldest dropped first
- * @returns {{stream, streams, text, done, error, reset, channel}} `stream` is
+ * @param {boolean|object} [options.rewind] catch up from channel history on
+ *   each subscription: true, or { seconds = 300, limit, timeout = 5000 }
+ * @returns {{stream, streams, text, done, error, history, reset, channel}} `stream` is
  *   the one with `id`, or else the one that started last
  */
-export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50 } = {}) {
+export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50, rewind } = {}) {
+  const pusher = usePusher();
+  const channel = useTarget(target);
   const [streams, setStreams] = useState({});
+  const [history, setHistory] = useState(null);
   const store = useMemo(() => createStreamStore((next) => setStreams(next), { maxStreams }), [maxStreams]);
-  const channel = useEvent(target, event, (payload) => {
-    if (id != null && String(payload?.id) !== String(id)) return;
-    store.apply(payload);
-  });
+  const idRef = useRef(id);
+  idRef.current = id;
+  const rewindKey = rewind ? JSON.stringify(rewind) : '';
+
+  useEffect(() => {
+    if (!channel || !event) return undefined;
+    return followStream(channel, {
+      event,
+      client: channel.pusher ?? pusher,
+      rewind: rewindKey ? JSON.parse(rewindKey) : false,
+      onHistory: setHistory,
+      apply: (payload) => {
+        const want = idRef.current;
+        if (want != null && String(payload?.id) !== String(want)) return;
+        store.apply(payload);
+      },
+    });
+  }, [channel, event, pusher, store, rewindKey]);
 
   const stream = id != null ? streams[String(id)] ?? null : latestStream(streams);
   return {
@@ -204,6 +225,63 @@ export function useStream(target, { event = STREAM_EVENT, id, maxStreams = 50 } 
     text: stream?.text ?? '',
     done: stream?.done ?? false,
     error: stream?.error ?? null,
+    history,
     reset: store.reset,
   };
 }
+
+/**
+ * A Laravel AI SDK agent's stream (laravel/ai broadcastOnQueue(), broadcast()
+ * or broadcastNow()), put back together: text, reasoning, tool calls and
+ * approvals. Events hibira-io/laravel split into chunks are joined.
+ *
+ * @param {string|object|null} target channel name or channel, e.g.
+ *   `private-hibira-ai.user.${user.id}` (AgentChannel::user() in Laravel)
+ * @param {object} [options]
+ * @param {string} [options.invocationId] follow only this run (the id
+ *   broadcastOnQueue()'s job gave it)
+ * @param {number} [options.maxRuns=20] runs kept, oldest dropped first
+ * @param {boolean|object} [options.rewind] catch up from channel history on
+ *   each subscription: true, or { seconds = 300, limit, timeout = 5000 }
+ * @param {string[]} [options.events] extra event names to listen to
+ * @returns {{run, runs, text, reasoning, status, done, error, toolCalls, approvals, history, reset, channel}}
+ *   `run` is the one with `invocationId`, or else the one that started last
+ */
+export function useAgentStream(target, { invocationId, maxRuns = 20, rewind, events } = {}) {
+  const pusher = usePusher();
+  const channel = useTarget(target);
+  const [runs, setRuns] = useState({});
+  const [history, setHistory] = useState(null);
+  const store = useMemo(() => createAgentStore((next) => setRuns(next), { maxRuns }), [maxRuns]);
+  const rewindKey = rewind ? JSON.stringify(rewind) : '';
+  const eventsKey = events?.length ? events.join('\n') : '';
+
+  useEffect(() => {
+    if (!channel) return undefined;
+    return followStream(channel, {
+      event: eventsKey ? [...AGENT_EVENTS, ...eventsKey.split('\n')] : AGENT_EVENTS,
+      client: channel.pusher ?? pusher,
+      rewind: rewindKey ? JSON.parse(rewindKey) : false,
+      onHistory: setHistory,
+      apply: (payload, name) => store.apply(payload, name),
+    });
+  }, [channel, pusher, store, rewindKey, eventsKey]);
+
+  const run = invocationId != null ? runs[String(invocationId)] ?? null : latestRun(runs);
+  return {
+    channel,
+    run,
+    runs,
+    text: run?.text ?? '',
+    reasoning: run?.reasoning ?? '',
+    status: run?.status ?? 'idle',
+    done: run?.done ?? false,
+    error: run?.error ?? null,
+    toolCalls: run?.toolCalls ?? EMPTY,
+    approvals: run?.approvals ?? EMPTY,
+    history,
+    reset: store.reset,
+  };
+}
+
+const EMPTY = Object.freeze([]);

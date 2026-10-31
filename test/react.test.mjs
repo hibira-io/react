@@ -11,6 +11,7 @@ import {
   useEvent,
   usePresence,
   usePusher,
+  useAgentStream,
   useStream,
   useTrigger,
 } from '../index.js';
@@ -201,6 +202,59 @@ test('useStream puts a stream back together', async () => {
   assert.equal(Object.keys(out.value.streams).length, 2);
   await act(async () => out.value.reset());
   assert.equal(out.value.stream, null);
+});
+
+test('useStream with rewind catches up after subscribing', async () => {
+  const pusher = fakePusher();
+  const out = {};
+  const P = probe(() => useStream('private-ai', { rewind: { seconds: 120 } }), out);
+  await render(h(HibiraProvider, { client: pusher }, h(P)));
+  assert.equal(out.value.history, null);
+  await act(async () => {
+    pusher.succeed('private-ai');
+  });
+  const ch = pusher.channel('private-ai');
+  assert.deepEqual(pusher.log.at(-1), ['send_event', 'pusher:rewind', { channel: 'private-ai', seconds: 120 }, 'private-ai']);
+  await act(async () => {
+    ch.emit('ai-stream', { id: 's1', seq: 1, delta: 'lo' });
+    ch.emit('ai-stream', { id: 's1', seq: 0, delta: 'Hel' });
+  });
+  assert.equal(out.value.text, '', 'held until the history answers');
+  await act(async () => ch.emit('pusher:rewind_succeeded', { count: 1, window: 3600, complete: true }));
+  assert.equal(out.value.text, 'Hello');
+  assert.equal(out.value.stream.incomplete, false);
+  assert.deepEqual(out.value.history, { count: 1, window: 3600, complete: true });
+});
+
+test('useAgentStream follows Laravel AI events, chunks and rewind', async () => {
+  const pusher = fakePusher();
+  const out = {};
+  const P = probe(() => useAgentStream('private-hibira-ai.user.1', { rewind: true }), out);
+  await render(h(HibiraProvider, { client: pusher }, h(P)));
+  assert.equal(out.value.status, 'idle');
+  await act(async () => {
+    pusher.succeed('private-hibira-ai.user.1');
+  });
+  const ch = pusher.channel('private-hibira-ai.user.1');
+  assert.equal(pusher.log.at(-1)[1], 'pusher:rewind');
+  const e = (id, type, fields) => ({ id, invocation_id: 'inv', type, ...fields });
+  await act(async () => {
+    ch.emit('stream_start', e('1', 'stream_start', { model: 'm' }));
+    ch.emit('text_delta', e('2', 'text_delta', { delta: 'Hi' }));
+    ch.emit('pusher:rewind_succeeded', { count: 1, window: 600, complete: true });
+    ch.emit('text_delta', e('2', 'text_delta', { delta: 'Hi' }));
+  });
+  assert.equal(out.value.text, 'Hi');
+  assert.equal(out.value.status, 'streaming');
+  const json = JSON.stringify(e('3', 'tool_result', { tool_id: 't', result: 'x'.repeat(300), successful: true }));
+  await act(async () => {
+    ch.emit('hibira:chunk', { id: 'c', event: 'tool_result', index: 1, count: 2, data: json.slice(150) });
+    ch.emit('hibira:chunk', { id: 'c', event: 'tool_result', index: 0, count: 2, data: json.slice(0, 150) });
+    ch.emit('stream_end', e('4', 'stream_end', { reason: 'stop' }));
+  });
+  assert.equal(out.value.toolCalls[0].result, 'x'.repeat(300));
+  assert.equal(out.value.done, true);
+  assert.equal(out.value.run.id, 'inv');
 });
 
 test('useStream with an id and a custom event', async () => {
