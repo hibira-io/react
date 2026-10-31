@@ -209,7 +209,10 @@ test('useStream with rewind catches up after subscribing', async () => {
   const P = probe(() => useStream('private-ai', { rewind: { seconds: 120 } }), out);
   await render(h(HibiraProvider, { client: pusher }, h(P)));
   assert.equal(out.value.history, null);
-  const ch = await act(async () => pusher.succeed('private-ai'));
+  await act(async () => {
+    pusher.succeed('private-ai');
+  });
+  const ch = pusher.channel('private-ai');
   assert.deepEqual(pusher.log.at(-1), ['send_event', 'pusher:rewind', { channel: 'private-ai', seconds: 120 }, 'private-ai']);
   await act(async () => {
     ch.emit('ai-stream', { id: 's1', seq: 1, delta: 'lo' });
