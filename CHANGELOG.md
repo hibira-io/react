@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- `agent.js` no longer uses a numeric separator (`60_000`), which
+  webpack 4 cannot parse. Kept identical to @hibira-io/vue.
+
 ## 0.3.0
 
 - `HibiraProvider` takes a `Pusher` prop, the pusher-js class to open the
