@@ -9,7 +9,7 @@
 // null and the other hooks return their empty values.
 
 import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import Pusher from 'pusher-js';
+import DefaultPusher from 'pusher-js';
 import { acquireChannel, hibiraOptions, isClientEvent, presenceMembers, releaseChannel } from './client.js';
 import { STREAM_EVENT, createStreamStore, followStream, latestStream } from './stream.js';
 import { AGENT_EVENTS, createAgentStore, latestRun } from './agent.js';
@@ -29,8 +29,11 @@ const HibiraContext = createContext(null);
  *   (channelAuthorization, userAuthentication, wsHost for a local server...)
  * @param {object} [props.client] an existing pusher-js client to use instead,
  *   e.g. `echo.connector.pusher`; it is not disconnected on unmount
+ * @param {Function} [props.Pusher] the pusher-js class to open the connection
+ *   with; pass the one from `pusher-js/with-encryption` for
+ *   `private-encrypted-` channels
  */
-export function HibiraProvider({ appKey, options, client, children }) {
+export function HibiraProvider({ appKey, options, client, Pusher = DefaultPusher, children }) {
   const [own, setOwn] = useState(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
@@ -43,7 +46,7 @@ export function HibiraProvider({ appKey, options, client, children }) {
       pusher.disconnect();
       setOwn(null);
     };
-  }, [client, appKey]);
+  }, [client, appKey, Pusher]);
 
   return createElement(HibiraContext.Provider, { value: client ?? own }, children);
 }

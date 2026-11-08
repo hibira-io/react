@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- `HibiraProvider` takes a `Pusher` prop, the pusher-js class to open the
+  connection with. Pass the one from `pusher-js/with-encryption` to use
+  end-to-end encrypted `private-encrypted-` channels; the default browser
+  build of pusher-js cannot decrypt them. README: new "Encrypted channels"
+  section.
+
 ## 0.2.1
 
 - README: cover image and screenshots.

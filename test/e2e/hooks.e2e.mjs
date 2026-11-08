@@ -204,3 +204,35 @@ test('useStream rewind: chunks sent while disconnected are caught up', { skip: s
   assert.equal(views.s.text, res.text);
   await act(async () => root.unmount());
 });
+
+test('private-encrypted- channel: events arrive decrypted with Pusher from pusher-js/with-encryption', { skip }, async () => {
+  globalThis.self ??= globalThis; // the web build expects a browser global
+  const EncryptedPusher = require('pusher-js/with-encryption'); // bundlers resolve the bare import
+  const masterKey = Buffer.alloc(32, 7).toString('base64');
+  const secure = new PusherServer({
+    appId: env.HIBIRA_E2E_APP_ID, key: env.HIBIRA_E2E_KEY, secret: env.HIBIRA_E2E_SECRET,
+    host, port: String(port), useTLS: tls, encryptionMasterKeyBase64: masterKey,
+  });
+  const channel = `private-encrypted-e2e-${Date.now()}`;
+  const opts = {
+    ...options('u', 'U'),
+    channelAuthorization: {
+      customHandler: ({ socketId, channelName }, cb) => cb(null, secure.authorizeChannel(socketId, channelName)),
+    },
+  };
+  const got = [];
+  const views = {};
+  function View() {
+    views.pusher = usePusher();
+    useEvent(channel, 'secret', (data) => got.push(data));
+    return null;
+  }
+  const el = document.createElement('div');
+  const root = createRoot(el);
+  await act(async () => root.render(h(HibiraProvider, { appKey: env.HIBIRA_E2E_KEY, options: opts, Pusher: EncryptedPusher }, h(View))));
+  await waitFor(() => views.pusher?.channel(channel)?.subscribed, 'encrypted subscription');
+  await secure.trigger(channel, 'secret', { diagnosis: 'fine', n: 1 });
+  await waitFor(() => got.length === 1, 'decrypted event');
+  assert.deepEqual(got[0], { diagnosis: 'fine', n: 1 });
+  await act(async () => root.unmount());
+});

@@ -26,6 +26,11 @@ export interface HibiraProviderProps {
   options?: Partial<Options>;
   /** Use this client instead of opening one, e.g. `echo.connector.pusher`. Not disconnected on unmount. */
   client?: Pusher | null;
+  /**
+   * The pusher-js class to open the connection with. Pass the one from
+   * `pusher-js/with-encryption` to use `private-encrypted-` channels.
+   */
+  Pusher?: new (key: string, options: Options) => Pusher;
   children?: ReactNode;
 }
 
