@@ -138,6 +138,24 @@ environment then. On the Free plan, add your site's origin (for example
 `http://localhost:3000`) to the app's allowed origins, or browsers can't
 connect.
 
+## Encrypted channels
+
+On `private-encrypted-` channels your backend encrypts each event and only
+subscribers can read it; Hibira relays ciphertext it cannot decrypt. Open the
+connection with the pusher-js build that includes encryption:
+
+```jsx
+import Pusher from 'pusher-js/with-encryption';
+
+<HibiraProvider appKey={key} Pusher={Pusher} options={{ channelAuthorization: { endpoint: '/api/hibira/auth' } }}>
+```
+
+On the backend, give the `pusher` package a 32-byte key (`openssl rand -base64 32`)
+as `encryptionMasterKeyBase64`. It then encrypts what you trigger on these
+channels, and `authorizeChannel` returns the channel's key to the subscriber.
+`useEvent` and `useStream` get the decrypted data as usual. Client events
+(`useTrigger`) are not allowed on encrypted channels.
+
 ## Streaming LLM output
 
 Send the model's stream from your backend with `streamToChannel()`. It

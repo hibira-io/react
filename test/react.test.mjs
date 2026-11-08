@@ -330,3 +330,22 @@ test('a provider switched to another client resubscribes', async () => {
   assert.equal(out.value, p2.channel('c'));
   assert.equal(p1.channel('c'), undefined);
 });
+
+test('HibiraProvider opens the connection with the Pusher class it is given', async () => {
+  const made = [];
+  class Custom {
+    constructor(key, options) {
+      made.push([key, options.wsHost]);
+      this.disconnected = false;
+    }
+    disconnect() {
+      this.disconnected = true;
+    }
+  }
+  const out = {};
+  const r = await render(h(HibiraProvider, { appKey: 'k', Pusher: Custom }, h(probe(() => usePusher(), out))));
+  assert.deepEqual(made, [['k', 'ws.hibira.io']]);
+  assert.ok(out.value instanceof Custom);
+  await r.unmount();
+  assert.equal(out.value.disconnected, true);
+});

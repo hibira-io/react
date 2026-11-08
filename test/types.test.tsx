@@ -1,5 +1,6 @@
 // Compiled by `npm run typecheck`, never run.
 import Pusher from 'pusher-js';
+import EncryptedPusher from 'pusher-js/with-encryption';
 import { HibiraProvider, useAgentStream, useChannel, useEvent, usePresence, useStream, useTrigger, useConnectionState, hibiraOptions } from '@hibira-io/react';
 import { streamToChannel } from '@hibira-io/react/server';
 
@@ -40,3 +41,4 @@ export async function server(pusher: { trigger(c: string, e: string, d: any, x?:
   const r = await streamToChannel(pusher, 'private-ai', gen(), { meta: { model: 'm' }, interval: 50 });
   return r.id + r.text;
 }
+export const encryptedProvider = <HibiraProvider appKey="key" Pusher={EncryptedPusher} />;
